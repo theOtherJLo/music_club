@@ -4,71 +4,27 @@ import os
 # import spotipy
 # from spotipy.oauth2 import SpotifyClientCredentials
 import pandas as pd
+import numpy as np
 import requests
 from requests.models import requote_uri
 from spotipy.oauth2 import SpotifyOAuth
 
 
-# def spotify_login():
-#     load_dotenv()
-
-#     client_id = os.environ.get("client_id")
-#     client_secret = os.environ.get("client_secret")
-
-#     client_credentials_manager = SpotifyClientCredentials(
-#         client_id=client_id, client_secret=client_secret
-#     )
-
-#     sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
-
-#     return sp
-
-
 def get_token():
-    load_dotenv()
-
-    client_id = os.environ.get("client_id")
-    client_secret = os.environ.get("client_secret")
-    redirect_uri = os.environ.get("redirect_uri")
     scope = "playlist-read-collaborative"
-
-    AUTH_URL = "https://accounts.spotify.com/api/authorize"
-
-    # POST
-    auth_response = requests.post(
-        AUTH_URL,
-        {
-            # "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-            "scope": scope,
-        },
-    )
-
-    # convert the response to JSON
-    auth_response_data = auth_response.json()
-
-    # save the access token
-    access_token = auth_response_data["access_token"]
+    auth_manager = SpotifyOAuth(scope=scope)
+    access_token = auth_manager.get_access_token(as_dict=True)
 
     return access_token
 
 
-def spotify_query(access_token, endpoint, **kwargs):
-    headers = {"Authorization": "Bearer {token}".format(token=access_token)}
+# TODO: Add auto toekn refresh
+def spotify_query(access_token, request_url, **kwargs):
+    headers = {
+        "Authorization": "Bearer {token}".format(token=access_token["access_token"])
+    }
 
-    # base URL of all Spotify API endpoints
-    REQUEST_URL = "https://api.spotify.com/v1/" + endpoint
-
-    # for key, value in kwargs.items():
-    #     if key == list(kwargs)[0]:
-    #         REQUEST_URL = REQUEST_URL + "?" + key + "=" + str(value)
-    #     else:
-    #         REQUEST_URL = REQUEST_URL + "&" + key + "=" + str(value)
-
-    # actual GET request with proper header
-    r = requests.get(REQUEST_URL, headers=headers, params=kwargs)
+    r = requests.get(request_url, headers=headers, params=kwargs)
 
     r = r.json()
 
@@ -81,12 +37,71 @@ def spotify_query(access_token, endpoint, **kwargs):
 
 def get_music_club_playlists(access_token):
 
-    df = spotify_query(access_token, endpoint="users/11173343040/playlists", limit=50)
-    df["name"]
+    df = spotify_query(
+        access_token,
+        request_url="https://api.spotify.com/v1/users/11173343040/playlists",
+        limit=50,
+    )
+    df = df[df["name"].str.contains("Skype")]
+
+    return df
 
 
-spotify_query(access_token, endpoint="me")
+def get_music_club_tracks(access_token):
 
-scope = "playlist-read-collaborative"
-auth_manager = SpotifyOAuth(scope=scope)
-access_token = auth_manager.get_access_token(as_dict=False)
+    playlists = get_music_club_playlists(access_token)
+
+    df = pd.DataFrame()
+
+    for index, row in playlists.iterrows():
+        tracks_df = spotify_query(access_token, request_url=row["tracks.href"])
+        tracks_df["playlist_id"] = row.id
+        df = df.append(tracks_df)
+
+    df["artist.name"] = df["track.album.artists"].apply(lambda x: x[0]["name"])
+    df["artist.uri"] = df["artists"].apply(lambda x: x[0]["uri"])
+    df["album.image"] = df["track.album.images"].apply(
+        lambda x: x[-1]["url"]
+    )  # Should take the smallest image (can change later)
+
+    return df
+
+
+def get_display_name(user_href):
+    user_info = spotify_query(access_token, request_url=user_href)
+    return user_info["display_name"]
+
+
+def get_music_club_members(access_token):
+    tracks = get_music_club_tracks(access_token)
+
+    user_info = tracks[["added_by.href", "added_by.id"]].drop_duplicates()
+    user_info["display_name"] = user_info["added_by.href"].apply(get_display_name)
+
+    user_info["display_name"] = np.select(
+        [
+            user_info["display_name"] == "danelk1",
+            user_info["display_name"] == "duuuncaaan",
+            user_info["display_name"] == "11173343040",
+            True,
+        ],
+        ["Dan Bright", "Duncan Stewart", "James Lowe", user_info["display_name"]],
+    )
+
+    user_info = user_info[
+        ~user_info["display_name"].isin(["fionasarjantson", "sez0312"])
+    ]
+
+    return user_info
+
+
+if __name__ == "__main__":
+    access_token = get_token()
+    playlists = get_music_club_playlists(access_token)
+    tracks = get_music_club_tracks(access_token)
+    members = get_music_club_members(access_token)
+
+    playlists.to_csv("layouts/data/playlists.csv")
+    tracks.to_csv("layouts/data/tracks.csv")
+    members.to_csv("layouts/data/members.csv")
+
