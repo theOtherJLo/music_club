@@ -56,10 +56,14 @@ def create_output_df(month, active_cell=None):
 
         # An Album has been clicked, so now we need to expand the table to show the tracks
         selected_tracks_df = combined_df[
-            ["track.name", "display_name", "track.album.name"]
+            ["track.name", "display_name", "track.preview_url"]
         ][combined_df["track.album.name"] == selected_album]
 
         selected_tracks_df["album.image"] = ""
+        selected_tracks_df["id"] = selected_tracks_df["track.preview_url"]
+        selected_tracks_df["preview"] = (
+            selected_tracks_df["track.preview_url"].str.startswith("https").apply(str)
+        )
 
         # Add this for sorting
         selected_tracks_df["display_name"] = selected_tracks_df[
@@ -119,35 +123,23 @@ def create_initial_output_table(month):
     return output_table
 
 
-# Last selected album ------
-# We use a hidden div to keep track of the last selected album and track
-# last_selected = html.P(children = None, style= {'display': 'none'})
-
-# @app.callback(
-#     [
-#         Output("last_selected", "children"),
-#     ],
-#     [Input("music-table", "active_cell")],
-# )
-# def last_selected_album(active):
-
-
 # Audio preview ---------------
-
+# This doesn't matter as it will be hidden at first
 audio_filename = tracks["track.preview_url"].iloc[0]
-audio = html.Audio(id="audio", src=audio_filename, controls=True)
+audio = html.Audio(
+    id="track-audio", src=audio_filename, controls=True, style={"display": "none"}
+)
 
 audio_layout = html.Div(
     children=[
         dbc.Row(
             [
-                dbc.Col("Select a track to play a preview:", width=3),
+                dbc.Col("Select a blue track to play a preview:", width=3),
                 dbc.Col(audio, width=6),
             ]
         )
     ]
 )
-
 
 # Layout --------------
 
@@ -156,16 +148,6 @@ records_layout = html.Div(children=[audio_layout, create_initial_output_table("M
 
 # Callbacks ----------------
 style_data_conditional = [
-    # {
-    #     "if": {"state": "selected"},
-    #     "backgroundColor": "inherit !important",
-    #     "border": "inherit !important",
-    # },
-    # {
-    #     "if": {"state": "active"},
-    #     "backgroundColor": "inherit !important",
-    #     "border": "inherit !important",
-    # },
     {
         "if": {"state": "active"},
         "backgroundColor": "rgba(150, 180, 225, 0.2)",
@@ -186,6 +168,8 @@ style_data_conditional = [
         Output("music-table", "columns"),
         Output("music-table", "selected_cells"),
         Output("music-table", "active_cell"),
+        Output("track-audio", "src"),
+        Output("track-audio", "style"),
     ],
     [Input("music-table", "active_cell")],
 )
@@ -212,6 +196,14 @@ def update_selected_row_color(active):
                     "backgroundColor": "white",
                 }
             )
+            # Make tracks look like a hyperlink if a preview is available:
+            style.append(
+                {
+                    "if": {"filter_query": "{preview} = True",},
+                    "textDecoration": "underline",
+                    "color": "blue",
+                }
+            )
 
         output_columns = [
             {"name": "", "id": "album.image", "presentation": "markdown"},
@@ -231,10 +223,35 @@ def update_selected_row_color(active):
 
     output_df = create_output_df("March", active_cell=active)
 
+    # If active["row_id"] is a track and not an album, we also output the track
+    if active:
+
+        if active["row_id"] is not None:
+            selected_track = active["row_id"]
+        else:
+            selected_track = ""
+    else:
+        selected_track = ""
+
+    if selected_track.startswith("https"):
+        audio_track = selected_track
+        audio_style = {"display": "block"}
+    else:
+        audio_track = None
+        audio_style = {"display": "none"}
+
     output_data = output_df.to_dict("records")
 
     selected_cells = []
     active_cell = None
 
-    return style, output_data, output_columns, selected_cells, active_cell
+    return (
+        style,
+        output_data,
+        output_columns,
+        selected_cells,
+        active_cell,
+        audio_track,
+        audio_style,
+    )
 
