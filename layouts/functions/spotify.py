@@ -59,7 +59,7 @@ def get_music_club_tracks(access_token):
         df = df.append(tracks_df)
 
     df["artist.name"] = df["track.album.artists"].apply(lambda x: x[0]["name"])
-    df["artist.uri"] = df["artists"].apply(lambda x: x[0]["uri"])
+    df["artist.uri"] = df["track.album.artists"].apply(lambda x: x[0]["uri"])
     df["album.image"] = df["track.album.images"].apply(
         lambda x: x[-1]["url"]
     )  # Should take the smallest image (can change later)
