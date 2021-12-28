@@ -1,3 +1,11 @@
+/* Custom title font*/
+@font-face { font-family: “Newrocker”; src: url(“assets/fonts/Newrocker-Gy5a.ttf”) format(“truetype”); }
+
+h1{
+  font-family: “Newrocker”;
+  font-size: 4rem
+}
+
 /* all */
 body {
   overflow-x: hidden;

@@ -2,6 +2,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State, MATCH, ALL
 import dash_bootstrap_components as dbc
+from dash_html_components.Col import Col
 import dash_table
 import pandas as pd
 
@@ -25,23 +26,28 @@ def create_output_df(month, active_cell=None):
     # Join on member info
     combined_df = pd.merge(playlist_tracks, members, how="left", on="added_by.id")
 
-    # If no album has been selected, we just show one album per row
+    # If multiple albums have been selected, we just show one album per row
     output_df = (
-        combined_df[
-            [
-                "display_name",
-                "artist.name",
-                "track.album.name",
-                "album.image",
-                "track.album.total_tracks",
-                "artist.uri",
-            ]
-        ]
+        combined_df[["display_name", "track.album.id"]]
         # Taking the maximum occorunces
         .groupby(["display_name"])
         .agg(lambda x: x.value_counts().index[0])
         .reset_index()
     )
+
+    # Join on album info to make sure it always matches
+    artist_info = combined_df[
+        [
+            "track.album.id",
+            "artist.name",
+            "track.album.name",
+            "album.image",
+            "track.album.total_tracks",
+            "artist.uri",
+        ]
+    ].drop_duplicates()
+
+    output_df = pd.merge(output_df, artist_info, how="left", on="track.album.id")
 
     # Creating album image entry
     output_df["album.image"] = output_df["album.image"].apply(
@@ -51,29 +57,46 @@ def create_output_df(month, active_cell=None):
     output_df["id"] = output_df["track.album.name"]
 
     if active_cell is not None:
-
         selected_album = active_cell["row_id"]
+        if (
+            output_df["track.album.name"]
+            .str.contains(selected_album, regex=False)
+            .any()
+        ):
+            # active_cell is not None:
 
-        # An Album has been clicked, so now we need to expand the table to show the tracks
-        selected_tracks_df = combined_df[
-            ["track.name", "display_name", "track.preview_url"]
-        ][combined_df["track.album.name"] == selected_album]
+            selected_artist = tracks[tracks["track.album.name"] == selected_album][
+                "artist.name"
+            ].iloc[0]
 
-        selected_tracks_df["album.image"] = ""
-        selected_tracks_df["id"] = selected_tracks_df["track.preview_url"]
-        selected_tracks_df["preview"] = (
-            selected_tracks_df["track.preview_url"].str.startswith("https").apply(str)
-        )
+            # An Album has been clicked, so now we need to expand the table to show the tracks
+            # We use artists for the months where there are multiple albums
+            selected_tracks_df = combined_df[
+                ["track.name", "display_name", "track.preview_url", "track.id"]
+            ][combined_df["artist.name"] == selected_artist]
 
-        # Add this for sorting
-        selected_tracks_df["display_name"] = selected_tracks_df[
-            "display_name"
-        ] + selected_tracks_df.index.map(str)
+            selected_tracks_df["album.image"] = ""
+            selected_tracks_df["id"] = selected_tracks_df["track.id"]
+            selected_tracks_df["preview"] = (
+                selected_tracks_df["track.preview_url"]
+                .str.startswith("https")
+                .apply(str)
+            )
 
-        output_df = output_df.append(selected_tracks_df).sort_values(by="display_name")
-        output_df["display_name"] = np.where(
-            output_df["album.image"] == "", "", output_df["display_name"]
-        )
+            # Add this for sorting
+            selected_tracks_df["display_name"] = selected_tracks_df[
+                "display_name"
+            ] + selected_tracks_df.index.map(str)
+
+            output_df = output_df.append(selected_tracks_df).sort_values(
+                by="display_name"
+            )
+            output_df["display_name"] = np.where(
+                output_df["album.image"] == "", "", output_df["display_name"]
+            )
+
+        else:
+            output_df["track.name"] = ""
 
     else:
         output_df["track.name"] = ""
@@ -123,28 +146,141 @@ def create_initial_output_table(month):
     return output_table
 
 
-# Audio preview ---------------
+# Month selector ------------
+month_options = playlists["month"]
+
+month_selector = dbc.Card(
+    dbc.CardBody(
+        [
+            dbc.Row(
+                html.H5("Select Month", className="card-title"),
+                align="center",
+                justify="center",
+            ),
+            dcc.Dropdown(
+                id="month",
+                options=[{"label": m, "value": m} for m in month_options],
+                value=month_options[0],
+            ),
+        ]
+    ),
+    style={"height": "150px"},
+)
+
+# More track info (inlcuding audio preview) ---------------
 # This doesn't matter as it will be hidden at first
 audio_filename = tracks["track.preview_url"].iloc[0]
 audio = html.Audio(
     id="track-audio", src=audio_filename, controls=True, style={"display": "none"}
 )
 
-audio_layout = html.Div(
-    children=[
-        dbc.Row(
-            [
-                dbc.Col("Select a blue track to play a preview:", width=3),
-                dbc.Col(audio, width=6),
-            ]
-        )
-    ]
+# audio_layout = html.Div(
+#     children=[
+#         dbc.Row(
+#             [
+#                 dbc.Col("Select a blue track to play a preview:", width=3),
+#                 dbc.Col(audio, width=6),
+#             ]
+#         )
+#     ]
+# )
+
+# This compontent will keep track of which track has been selected
+selected_track_hidden = html.P(
+    id="selected_track_id", children="", style={"display": "none"}
 )
+
+selected_track_info = dbc.Card(
+    dbc.CardBody(
+        [
+            dbc.Row(
+                html.H5("Selected track information", className="card-title"),
+                align="center",
+                justify="center",
+            ),
+            selected_track_hidden,
+            html.Div(id="track_info", children=[]),
+        ]
+    ),
+    style={"height": "150px"},
+)
+
+
+@app.callback(
+    [Output("track_info", "children"),], [Input("selected_track_id", "children")],
+)
+def update_track_info(track_id):
+
+    # If no selection has been made:
+    if track_id == "":
+        output = [
+            dbc.Row(
+                html.H6("Select a track to see extra information"),
+                align="center",
+                justify="center",
+            )
+        ]
+
+    else:
+        selected_track_df = tracks.copy()[tracks["track.id"] == track_id]
+
+        track_name = selected_track_df["track.name"].iloc[0]
+        track_link = selected_track_df["track.external_urls.spotify"].iloc[0]
+        artist_name = selected_track_df["artist.name"].iloc[0]
+
+        if len(track_name) > 29:
+            track_name = track_name[0:28] + "..."
+
+        track_name_component = html.A(
+            [
+                html.H5(track_name, style={"color": "blue"}),
+                html.H5("By " + artist_name, style={"color": "blue"}),
+            ],
+            href=track_link,
+            target="_blank",
+            style={"display": "inline-block"}
+            # style={
+            #     "width": "100%",
+            #     # "display": "flex",
+            #     "align-items": "center",
+            #     "justify-content": "center",
+            # },
+        )
+
+        track_preview_url = selected_track_df["track.preview_url"].iloc[0]
+        if pd.isna(track_preview_url):
+            audio = html.P("No preview audio available")
+        else:
+            audio = html.Audio(
+                id="track-audio",
+                src=selected_track_df["track.preview_url"].iloc[0],
+                controls=True,
+            )
+
+        output = [
+            dbc.Row(
+                [
+                    dbc.Col([track_name_component], width="7"),
+                    dbc.Col([audio], width="5"),
+                ]
+            )
+        ]
+
+    return output
+
 
 # Layout --------------
 
 
-records_layout = html.Div(children=[audio_layout, create_initial_output_table("March")])
+records_layout = html.Div(
+    children=[
+        dbc.Row(
+            [dbc.Col(month_selector, width=3), dbc.Col(selected_track_info, width=9)]
+        ),
+        html.Br(),
+        create_initial_output_table(month_options[0]),
+    ]
+)
 
 # Callbacks ----------------
 style_data_conditional = [
@@ -168,12 +304,12 @@ style_data_conditional = [
         Output("music-table", "columns"),
         Output("music-table", "selected_cells"),
         Output("music-table", "active_cell"),
-        Output("track-audio", "src"),
-        Output("track-audio", "style"),
+        Output("selected_track_id", "children"),
+        # Output("track-audio", "style"),
     ],
-    [Input("music-table", "active_cell")],
+    [Input("music-table", "active_cell"), Input("month", "value")],
 )
-def update_selected_row_color(active):
+def update_selected_row_color(active, month):
 
     style = style_data_conditional.copy()
     if active:
@@ -199,7 +335,7 @@ def update_selected_row_color(active):
             # Make tracks look like a hyperlink if a preview is available:
             style.append(
                 {
-                    "if": {"filter_query": "{preview} = True",},
+                    "if": {"column_id": "track.name",},
                     "textDecoration": "underline",
                     "color": "blue",
                 }
@@ -221,24 +357,23 @@ def update_selected_row_color(active):
             {"name": "Chosen by", "id": "display_name"},
         ]
 
-    output_df = create_output_df("March", active_cell=active)
+    output_df = create_output_df(month, active_cell=active)
 
     # If active["row_id"] is a track and not an album, we also output the track
     if active:
-
-        if active["row_id"] is not None:
+        if tracks["track.id"].str.contains(active["row_id"], regex=False).any():
             selected_track = active["row_id"]
         else:
             selected_track = ""
     else:
         selected_track = ""
 
-    if selected_track.startswith("https"):
-        audio_track = selected_track
-        audio_style = {"display": "block"}
-    else:
-        audio_track = None
-        audio_style = {"display": "none"}
+    # if selected_track.startswith("https"):
+    #     audio_track = selected_track
+    #     audio_style = {"display": "block"}
+    # else:
+    #     audio_track = None
+    #     audio_style = {"display": "none"}
 
     output_data = output_df.to_dict("records")
 
@@ -251,7 +386,6 @@ def update_selected_row_color(active):
         output_columns,
         selected_cells,
         active_cell,
-        audio_track,
-        audio_style,
+        selected_track,
     )
 

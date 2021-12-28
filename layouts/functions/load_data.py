@@ -12,6 +12,10 @@ def import_playlists():
     # Create Month column
     df["month"] = df["name"].str.lower().str.replace("skype chat ", "").str.title()
     df["month"] = np.where(df["month"] == "Feb", "February", df["month"])
+    df["month"] = np.where(
+        df["month"].str.contains("[0-9]"), df["month"], df["month"] + " 2021"
+    )
+    df = df[df["month"] != "May 2021"]
     return df
 
 
