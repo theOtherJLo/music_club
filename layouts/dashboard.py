@@ -1,12 +1,10 @@
 # third party
-import dash
-from dash_bootstrap_components._components.Row import Row
 import dash_core_components as dcc
 import dash_html_components as html
+
 from dash.dependencies import Input, Output, State, MATCH, ALL
 import dash_bootstrap_components as dbc
-from dash_html_components.Center import Center
-from dash_html_components.Col import Col
+
 
 from .records import records_layout
 
@@ -23,8 +21,14 @@ dashboard_layout = dbc.Container(
         html.Br(),
         html.Div(records_layout, style={"width": "80vw"}),
         html.Br(),
-        html.Hr(),
-        dcc.Markdown(music_club_explanation),
+        html.Div(
+            [html.Hr(), dcc.Markdown(music_club_explanation),], style={"width": "80vw"}
+        ),
     ],
     fluid=True,
+    style={
+        "margin-left": "5rem",
+        #    "margin-right": "2rem",
+        #    "padding": "2rem 1rem",
+    },
 )
