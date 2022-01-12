@@ -9,6 +9,8 @@ import requests
 from requests.models import requote_uri
 from spotipy.oauth2 import SpotifyOAuth
 
+load_dotenv()
+
 
 def get_token():
     scope = "playlist-read-collaborative"
