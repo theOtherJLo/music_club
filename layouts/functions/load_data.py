@@ -23,3 +23,7 @@ def import_tracks():
     df = pd.read_csv("layouts/data/tracks.csv")
     return df
 
+
+def import_artists():
+    df = pd.read_csv("layouts/data/artists.csv")
+    return df

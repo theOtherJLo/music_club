@@ -65,6 +65,7 @@ def get_music_club_tracks(access_token):
     df["album.image"] = df["track.album.images"].apply(
         lambda x: x[-1]["url"]
     )  # Should take the smallest image (can change later)
+    df["artist.id"] = df["track.album.artists"].apply(lambda x: x[0]["id"])
 
     return df
 
@@ -97,13 +98,51 @@ def get_music_club_members(access_token):
     return user_info
 
 
+def spotify_query_artist(access_token, artist_id):
+
+    response = spotify_query(
+        access_token,
+        request_url=f"https://api.spotify.com/v1/artists/{artist_id}",
+        limit=50,
+    )
+
+    json = {
+        "name": response["name"],
+        "popularity": response["popularity"],
+        "artist.id": artist_id,
+    }
+
+    df = pd.json_normalize(json)
+
+    df[response["genres"]] = True
+
+    return df
+
+
+def get_music_club_artists(access_token):
+    tracks = get_music_club_tracks(access_token)
+
+    artist_ids = tracks["artist.id"].unique()
+
+    df = pd.DataFrame()
+
+    for id in artist_ids:
+        artist_df = spotify_query_artist(access_token, id)
+        df = df.append(artist_df)
+
+    df = df.fillna(False)  # Genres are one hot encoded
+
+    return df
+
+
 if __name__ == "__main__":
     access_token = get_token()
     playlists = get_music_club_playlists(access_token)
     tracks = get_music_club_tracks(access_token)
     members = get_music_club_members(access_token)
+    artists = get_music_club_artists(access_token)
 
     playlists.to_csv("layouts/data/playlists.csv")
     tracks.to_csv("layouts/data/tracks.csv")
     members.to_csv("layouts/data/members.csv")
-
+    artists.to_csv("layouts/data/artists.csv")
